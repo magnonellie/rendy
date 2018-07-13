@@ -1,0 +1,11 @@
+[package]
+name = "rendy"
+version = "0.1.0"
+authors = ["omni-viral <scareaangel@gmail.com>"]
+license = "MIT/Apache-2.0"
+repository = "https://github.com/omni-viral/rendy.git"
+documentation = "https://docs.rs/crate/rendy/0.1.0/rendy"
+description = "Vulkan based renderer"
+keywords = ["graphics", "Vulkan", "ash", "render"]
+
+[dependencies]
