@@ -12,6 +12,7 @@
 //! `Factory` exposes command queues from which command pools may be created.
 //! 
 
+#[macro_use]
 extern crate ash;
 extern crate crossbeam_channel;
 #[macro_use]
@@ -23,12 +24,11 @@ mod escape;
 
 pub mod buffer;
 pub mod command;
-// pub mod factory;
+pub mod factory;
 pub mod format;
 pub mod image;
 pub mod memory;
 mod object;
-// pub mod shop;
 pub mod tracker;
 
 #[derive(Clone, Copy, Debug, Fail)]

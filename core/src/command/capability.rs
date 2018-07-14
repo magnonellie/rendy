@@ -1,4 +1,4 @@
-
+use ash;
 
 /// Queue from families with `Transfer` capability supports only few transfer operations.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
@@ -52,6 +52,25 @@ pub enum Capability {
     Graphics,
     Compute,
     General,
+}
+
+impl From<ash::vk::QueueFlags> for Capability {
+    fn from(flags: ash::vk::QueueFlags) -> Self {
+        if flags.subset(ash::vk::QUEUE_COMPUTE_BIT) {
+            if flags.subset(ash::vk::QUEUE_GRAPHICS_BIT) {
+                Capability::General
+            } else {
+                Capability::Compute
+            }
+        } else {
+            if flags.subset(ash::vk::QUEUE_GRAPHICS_BIT) {
+                Capability::Graphics
+            } else {
+                assert!(flags.subset(ash::vk::QUEUE_TRANSFER_BIT));
+                Capability::Transfer
+            }
+        }
+    }
 }
 
 impl Capability {
