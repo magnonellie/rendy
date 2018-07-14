@@ -9,3 +9,5 @@ description = "Vulkan based renderer"
 keywords = ["graphics", "Vulkan", "ash", "render"]
 
 [dependencies]
+rendy-core = { version = "0.0.1", path = "../core" }
+

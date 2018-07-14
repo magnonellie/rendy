@@ -1,6 +1,6 @@
 [package]
 name = "rendy-core"
-version = "0.1.0"
+version = "0.0.1"
 authors = ["omni-viral <scareaangel@gmail.com>"]
 license = "MIT/Apache-2.0"
 repository = "https://github.com/omni-viral/rendy.git"
@@ -9,8 +9,8 @@ description = "Vulkan based renderer"
 keywords = ["graphics", "Vulkan", "ash", "render", "unsafe"]
 
 [dependencies]
-ash = "*"
-failure = "*"
-relevant = "*"
-crossbeam-channel = "*"
-smallvec = "*"
+ash = "0.24"
+failure = "0.1"
+relevant = "0.1"
+crossbeam-channel = "0.2"
+smallvec = "0.6"
