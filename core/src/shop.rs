@@ -4,7 +4,7 @@ use buffer;
 use image;
 use memory;
 
-/// Shop is a part of the `Factory` that can allocate resources.
+/// Shop is a part of the `Device` that can allocate resources.
 pub trait Shop {
     /// Create new buffer.
     fn create_buffer(

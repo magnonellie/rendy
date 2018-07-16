@@ -7,7 +7,7 @@ use smallvec::SmallVec;
 use {DeviceLost, OomError, DeviceLostOrOomError};
 use command::{QueueId, buffer::*, capability::*, fence::*};
 use object::VulkanObjects;
-use tracker::GlobalTracker;
+use device::DeviceTracker;
 
 /// Vulkan's command queue marked with capability.
 pub struct Queue<C = Capability> {
@@ -38,15 +38,15 @@ where
     C: Copy + Debug,
 {
     /// Submit commands for execution.
-    /// This function accepts command buffer submissions with reference to `GlobalTracker` as tracker.
+    /// This function accepts command buffer submissions with reference to `DeviceTracker` as tracker.
     pub unsafe fn submit_scoped<'a, I, W, B, S>(&mut self, submissions: I, fence: Option<UnarmedFence>) -> Result<Option<ArmedFence<C>>, DeviceLostOrOomError>
     where
         I: IntoIterator<Item = Submission<W, B, S>>,
         W: IntoIterator<Item = (ash::vk::Semaphore, ash::vk::PipelineStageFlags)>,
-        B: IntoIterator<Item = Submit<C, &'a GlobalTracker>>,
+        B: IntoIterator<Item = Submit<C, &'a DeviceTracker>>,
         S: IntoIterator<Item = ash::vk::Semaphore>,
     {
-        self.submit_impl(submissions, fence, |_: &GlobalTracker| ())
+        self.submit_impl(submissions, fence, |_: &DeviceTracker| ())
     }
 
     /// Submit commands for execution.

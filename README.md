@@ -20,15 +20,15 @@ Rendy provide tools to track resource usage in order to automatically destroy th
 
 ### Automatic allocation
 
-`Factory` can automatically allocate memory for buffers and images based on usage and visibility requirements.
+`Device` can automatically allocate memory for buffers and images based on usage and visibility requirements.
 
 ### CPU-GPU data flow
 
-`Factory` can upload data to the device local memory choosing most appropriate technique for that.
+`Device` can upload data to the device local memory choosing most appropriate technique for that.
 * Memory mapping will be used if device local memory happens to be cpu-visible.
 * Relatively small data will be uploaded directly to buffers.
 * Staging buffer will be used for bigger uploads or any image uploads.
-`Factoy` will automatically insert synchronization commands according to user request.
+`Device` will automatically insert synchronization commands according to user request.
 
 ### Descriptors
 

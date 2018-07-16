@@ -2,9 +2,10 @@
 //! Yet another rendering engine.
 //! 
 
+pub extern crate ash;
 #[doc(hidden)]
-pub extern crate rendy_core;
+extern crate rendy_core;
 
 /// Unsafe core of the rendy.
 /// Mostly thin wrappers around vulkan objects.
-pub use rendy_core as core;
+pub use rendy_core::*;
