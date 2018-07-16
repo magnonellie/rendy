@@ -2,6 +2,7 @@
 use std::{any::Any, borrow::Borrow, collections::LinkedList, ffi::{CString, CStr}, ops::{Deref, Range}, ptr::null, sync::Arc};
 use ash::{self, version::{DeviceV1_0, EntryV1_0, InstanceV1_0}};
 use relevant::Relevant;
+use winit::Window;
 
 use {OomError, DeviceLost};
 use buffer;
@@ -11,6 +12,8 @@ use format;
 use image;
 use memory;
 use object::VulkanObjects;
+use surface::{Surface, SurfaceFn};
+use swapchain::Swapchain;
 
 /// Layer description
 #[derive(Clone, Debug)]
@@ -45,6 +48,7 @@ pub struct PhysicalDeviceProperties {
 /// Properties of the command queue family.
 #[derive(Clone, Copy, Debug)]
 pub struct QueueFamilyProperties {
+    pub index: u32,
     pub capability: command::Capability,
     pub queue_count: u32,
 }
@@ -71,14 +75,8 @@ pub enum InstanceError {
     #[fail(display = "Failed to load vulkan library {}", _0)]
     LibraryLoadError(String),
 
-    #[fail(display = "Failed to load entry functions {:?}", _0)]
-    EntryLoadError(Vec<&'static str>),
-
-    #[fail(display = "Failed to load static functions {:?}", _0)]
-    StaticLoadError(Vec<&'static str>),
-
-    #[fail(display = "Failed to load instance functions {:?}", _0)]
-    InstanceLoadError(Vec<&'static str>),
+    #[fail(display = "Failed to load functions {:?}", _0)]
+    LoadError(Vec<&'static str>),
 
     #[fail(display = "OomError")]
     OomError(OomError),
@@ -100,14 +98,14 @@ impl InstanceError {
     fn from_loading_error(error: ash::LoadingError) -> Self {
         match error {
             ash::LoadingError::LibraryLoadError(name) => InstanceError::LibraryLoadError(name),
-            ash::LoadingError::EntryLoadError(names) => InstanceError::EntryLoadError(names),
-            ash::LoadingError::StaticLoadError(names) => InstanceError::StaticLoadError(names),
+            ash::LoadingError::EntryLoadError(names) => InstanceError::LoadError(names),
+            ash::LoadingError::StaticLoadError(names) => InstanceError::LoadError(names),
         }
     }
 
     fn from_instance_error(error: ash::InstanceError) -> Self {
         match error {
-            ash::InstanceError::LoadError(names) => InstanceError::InstanceLoadError(names),
+            ash::InstanceError::LoadError(names) => InstanceError::LoadError(names),
             ash::InstanceError::VkError(result) => InstanceError::from_vk_result(result),
         }
     }
@@ -172,16 +170,9 @@ impl DeviceError {
     }
 }
 
-pub struct InnerInstance {
-    raw: ash::Instance<ash::version::V1_0>,
-}
-
-impl Deref for InnerInstance {
-    type Target = ash::Instance<ash::version::V1_0>;
-
-    fn deref(&self) -> &ash::Instance<ash::version::V1_0> {
-        &self.raw
-    }
+pub(crate) struct InnerInstance {
+    pub(crate) raw: ash::Instance<ash::version::V1_0>,
+    pub(crate) surface: Option<SurfaceFn>,
 }
 
 impl Drop for InnerInstance {
@@ -193,8 +184,17 @@ impl Drop for InnerInstance {
 }
 
 /// Vulkan instance.
+#[derive(Clone)]
 pub struct Instance {
-    inner: Arc<InnerInstance>,
+    pub(crate) inner: Arc<InnerInstance>,
+}
+
+impl Deref for Instance {
+    type Target = ash::Instance<ash::version::V1_0>;
+
+    fn deref(&self) -> &ash::Instance<ash::version::V1_0> {
+        &self.inner.raw
+    }
 }
 
 impl Instance {
@@ -206,6 +206,7 @@ impl Instance {
         let entry = ash::Entry::<ash::version::V1_0>::new().map_err(InstanceError::from_loading_error)?;
         let layer_properties = entry.enumerate_instance_layer_properties().map_err(InstanceError::from_vk_result)?;
         let extension_properties = entry.enumerate_instance_extension_properties().map_err(InstanceError::from_vk_result)?;
+        let surface_enabled;
 
         trace!("Properties and extensions fetched");
         let instance = unsafe {
@@ -229,10 +230,18 @@ impl Instance {
             let layers: Vec<CString> = config.layers.into_iter().map(|s| CString::new(s).unwrap()).collect();
             let extensions: Vec<CString> = config.extensions.into_iter().map(|s| CString::new(s).unwrap()).collect();
 
+            surface_enabled = SurfaceFn::extensions()
+                .iter()
+                .all(|&surface_extension| {
+                    extensions.iter()
+                        .find(|&name| &**name == surface_extension).is_some()
+                })
+            ;
+
             let enabled_layers: Vec<*const ash::vk::c_char> = layers.iter().map(|s| s.as_ptr()).collect();
             let enabled_extensions: Vec<*const ash::vk::c_char> = extensions.iter().map(|s| s.as_ptr()).collect();
 
-            let raw = entry.create_instance(
+            entry.create_instance(
                 &ash::vk::InstanceCreateInfo {
                     s_type: ash::vk::StructureType::InstanceCreateInfo,
                     p_next: null(),
@@ -252,33 +261,38 @@ impl Instance {
                     pp_enabled_extension_names: enabled_extensions.as_ptr(),
                 },
                 None
-            ).map_err(InstanceError::from_instance_error)?;
+            ).map_err(InstanceError::from_instance_error)?
+        };
+        trace!("Vulkan instance created");
 
-            InnerInstance {
-                raw,
-            }
+        let surface = if surface_enabled {
+            Some(SurfaceFn::new(instance.handle(), entry.static_fn()).map_err(InstanceError::LoadError)?)
+        } else {
+            None
         };
 
-        trace!("Vulkan instance created");
         Ok(Instance {
-            inner: Arc::new(instance),
+            inner: Arc::new(InnerInstance {
+                raw: instance,
+                surface,
+            })
         })
-    }
-
-    /// Enumerate physical devices
-    pub fn enumerate_physical_devices(&self) -> Result<impl IntoIterator<Item = PhysicalDevice>, InstanceError> {
-        let physicals = self.inner.enumerate_physical_devices().map_err(InstanceError::from_vk_result)?;
-        trace!("Physical device enumerated");
-        Ok(physicals.into_iter().map(move |physical| PhysicalDevice { instance: &self.inner, raw: physical, }))
     }
 }
 
 pub struct PhysicalDevice<'a> {
-    instance: &'a Arc<InnerInstance>,
-    raw: ash::vk::PhysicalDevice,
+    pub(crate) instance: &'a Instance,
+    pub(crate) raw: ash::vk::PhysicalDevice,
 }
 
 impl<'a> PhysicalDevice<'a> {
+    /// Enumerate physical devices
+    pub fn enumerate(instance: &Instance) -> Result<impl IntoIterator<Item = PhysicalDevice>, InstanceError> {
+        let physicals = instance.enumerate_physical_devices().map_err(InstanceError::from_vk_result)?;
+        trace!("Physical device enumerated");
+        Ok(physicals.into_iter().map(move |physical| PhysicalDevice { instance, raw: physical, }))
+    }
+
     pub fn properties(&self) -> PhysicalDeviceProperties {
         let properties = self.instance.get_physical_device_properties(self.raw);
         PhysicalDeviceProperties {
@@ -298,7 +312,9 @@ impl<'a> PhysicalDevice<'a> {
         self.instance
             .get_physical_device_queue_family_properties(self.raw)
             .into_iter()
-            .map(|properties| QueueFamilyProperties {
+            .enumerate()
+            .map(|(index, properties)| QueueFamilyProperties {
+                index: index as u32,
                 capability: properties.queue_flags.into(),
                 queue_count: properties.queue_count,
             })
@@ -322,13 +338,14 @@ impl<'a> PhysicalDevice<'a> {
 }
 
 pub struct Device {
-    fp: Arc<ash::vk::DeviceFnV1_0>,
-    raw: ash::vk::Device,
-    instance: Arc<InnerInstance>,
-    physical: ash::vk::PhysicalDevice,
-    families: Vec<command::Family>,
-    terminal: Terminal,
-    tracker: Option<DeviceTracker>,
+    pub(crate) fp: Arc<ash::vk::DeviceFnV1_0>,
+    pub(crate) raw: ash::vk::Device,
+    pub(crate) instance: Instance,
+    pub(crate) physical: ash::vk::PhysicalDevice,
+    pub(crate) families: Vec<command::Family>,
+    pub(crate) terminal: Terminal,
+    pub(crate) tracker: Option<DeviceTracker>,
+    pub(crate) swapchain: Option<ash::vk::SwapchainFn>,
 }
 
 impl Device {
@@ -361,6 +378,8 @@ impl Device {
 
         let extensions = extensions.into_iter().map(|extension| CString::new(extension).unwrap()).collect::<Vec<_>>();
 
+        let swapchain_enabled = extensions.iter().find(|&name| &**name == ash::extensions::Swapchain::name()).is_some();
+
         debug!("Enabling extensions: {:#?}", &extensions);
 
         let enabled_extensions = extensions.iter().map(|string| string.as_ptr()).collect::<Vec<_>>();
@@ -388,6 +407,17 @@ impl Device {
         let raw = device.handle();
         trace!("Device {:?} created", raw);
 
+        let swapchain = if swapchain_enabled {
+            Some(ash::vk::SwapchainFn::load(|name| unsafe {
+                ::std::mem::transmute(physical_device.instance.get_device_proc_addr(
+                    raw,
+                    name.as_ptr(),
+                ))
+            }).map_err(DeviceError::LoadError)?)
+        } else {
+            None
+        };
+
         let families = families.iter().map(|cqi| {
             let id = command::FamilyId {
                 index: cqi.family,
@@ -409,12 +439,13 @@ impl Device {
                 relevant: Relevant,
                 device: raw,
             }),
+            swapchain,
         })
     }
 
 
-    fn instance(&self) -> ash::vk::Instance {
-        self.instance.handle()
+    fn instance(&self) -> &Instance {
+        &self.instance
     }
 
     fn physical_device(&self) -> ash::vk::PhysicalDevice {
@@ -507,3 +538,4 @@ pub struct DeviceTracker {
     relevant: Relevant,
     device: ash::vk::Device,
 }
+

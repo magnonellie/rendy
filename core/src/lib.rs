@@ -21,6 +21,13 @@ extern crate failure;
 extern crate log;
 extern crate relevant;
 extern crate smallvec;
+extern crate winit;
+
+#[cfg(target_os = "macos")]
+extern crate cocoa;
+#[cfg(target_os = "macos")]
+#[macro_use]
+extern crate objc;
 
 mod escape;
 
@@ -30,7 +37,9 @@ pub mod device;
 pub mod format;
 pub mod image;
 pub mod memory;
-mod object;
+pub mod object;
+pub mod surface;
+pub mod swapchain;
 
 #[derive(Clone, Copy, Debug, Fail)]
 #[fail(display = "Device lost")]
