@@ -3,7 +3,7 @@ use std::{marker::PhantomData, ptr::null, sync::Arc};
 use ash::{self, version::{DeviceV1_0, V1_0}};
 use relevant::Relevant;
 
-use OomError;
+use errors::OomError;
 use command::{FamilyId, buffer::*, capability::*};
 
 /// Command pool usage type.

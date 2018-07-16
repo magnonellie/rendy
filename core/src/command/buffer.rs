@@ -3,7 +3,7 @@ use std::{marker::PhantomData, sync::Arc};
 use ash;
 use relevant::Relevant;
 
-use OomError;
+use errors::OomError;
 use command::{FamilyId, capability::*, pool::{NoResetBuffer, ResetBuffer, Pool}};
 
 pub trait Level {

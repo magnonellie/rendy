@@ -1,9 +1,9 @@
 
-use std::{ffi::CStr, ptr::null};
+use std::{ffi::CStr, ptr::{null, null_mut}};
 use ash;
 use winit::Window;
 
-use OomError;
+use errors::{OomError, SurfaceError};
 use device::{Instance, PhysicalDevice};
 
 pub struct Surface {
@@ -19,7 +19,7 @@ impl Surface {
     }
 
     /// Create surface.
-    pub fn create(instance: &Instance, window: Window) -> Result<Self, OomError> {
+    pub fn create(instance: &Instance, window: Window) -> Result<Self, SurfaceError> {
         let raw = instance.inner.surface.as_ref().unwrap().create_surface(instance.handle(), &window)?;
 
         Ok(Surface {
@@ -29,8 +29,12 @@ impl Surface {
     }
 
     /// Check if surface presentation is supported by queue family.
-    pub fn supports_queue_family(&self, physical_device: &PhysicalDevice, family_index: u32) -> bool {
+    pub fn supports_queue_family(&self, physical_device: &PhysicalDevice, family_index: u32) -> Result<bool, SurfaceError> {
         physical_device.instance.inner.surface.as_ref().unwrap().supports_queue_family(physical_device.raw, self.raw, family_index)
+    }
+
+    pub fn supported_formats(&self, physical_device: &PhysicalDevice) -> Result<impl IntoIterator<Item = ash::vk::Format>, SurfaceError> {
+        physical_device.instance.inner.surface.as_ref().unwrap().supported_formats(physical_device.raw, self.raw)
     }
 }
 
@@ -78,7 +82,7 @@ impl SurfaceFn {
     }
 
     #[cfg(target_os = "macos")]
-    pub fn create_surface(&self, instance: ash::vk::Instance, window: &Window) -> Result<ash::vk::SurfaceKHR, OomError> {
+    fn create_surface(&self, instance: ash::vk::Instance, window: &Window) -> Result<ash::vk::SurfaceKHR, SurfaceError> {
         use objc::runtime::{BOOL, Class, Object};
         use cocoa::appkit::NSView;
         use winit::os::macos::WindowExt;
@@ -114,15 +118,52 @@ impl SurfaceFn {
                 trace!("MacOS surface created");
                 Ok(surface)
             },
-            error => Err(OomError::from_vk_result(result)),
+            error => Err(SurfaceError::from_vk_result(result)),
         }
     }
 
-    pub fn supports_queue_family(&self, physical_device: ash::vk::PhysicalDevice, surface: ash::vk::SurfaceKHR, family_index: u32) -> bool {
+    fn supports_queue_family(&self, physical_device: ash::vk::PhysicalDevice, surface: ash::vk::SurfaceKHR, family_index: u32) -> Result<bool, SurfaceError> {
         let mut b = 0;
-        unsafe {
+        let result = unsafe {
             self.fp.get_physical_device_surface_support_khr(physical_device, family_index, surface, &mut b)
         };
-        b > 0
+
+        match result {
+            ash::vk::Result::Success => Ok(b > 0),
+            error => Err(SurfaceError::from_vk_result(error)),
+        }
+    }
+
+    fn supported_formats(&self, physical_device: ash::vk::PhysicalDevice, surface: ash::vk::SurfaceKHR) -> Result<impl IntoIterator<Item = ash::vk::Format>, SurfaceError> {
+        unsafe {
+            let mut count = 0;
+            let result = self.fp.get_physical_device_surface_formats_khr(
+                physical_device,
+                surface,
+                &mut count,
+                null_mut(),
+            );
+
+            match result {
+                ash::vk::Result::Success => {},
+                error => return Err(SurfaceError::from_vk_result(error)),
+            }
+
+            let mut formats = Vec::with_capacity(count as usize);
+            let result = self.fp.get_physical_device_surface_formats_khr(
+                physical_device,
+                surface,
+                &mut count,
+                formats.as_mut_ptr(),
+            );
+
+            match result {
+                ash::vk::Result::Success => {
+                    formats.set_len(count as usize);
+                    Ok(formats.into_iter().map(|format| format.format))
+                },
+                error => Err(SurfaceError::from_vk_result(error))
+            }
+        }
     }
 }

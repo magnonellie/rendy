@@ -2,26 +2,9 @@
 use std::ptr::null;
 use ash;
 
-use {OomError, DeviceLost};
+use errors::SurfaceError;
 use device::Device;
 use surface::Surface;
-
-
-#[derive(Clone, Debug, Fail)]
-pub enum CreateSwapchainError {
-    #[fail(display = "{}", _0)]
-    OomError(OomError),
-
-    #[fail(display = "{}", _0)]
-
-    DeviceLost(DeviceLost),
-
-    #[fail(display = "Surface lost")]
-    SurfaceLost,
-
-    #[fail(display = "Native window in use")]
-    WindowInUse,
-}
 
 pub struct SwapchainConfig {
     pub min_image_count: u32,
@@ -29,19 +12,6 @@ pub struct SwapchainConfig {
     pub image_extent: ash::vk::Extent2D,
     pub image_usage: ash::vk::ImageUsageFlags,
     pub present_mode: ash::vk::PresentModeKHR,
-}
-
-impl CreateSwapchainError {
-    fn from_vk_result(result: ash::vk::Result) -> Self {
-        match result {
-            ash::vk::Result::ErrorOutOfHostMemory => CreateSwapchainError::OomError(OomError::OutOfHostMemory),
-            ash::vk::Result::ErrorOutOfDeviceMemory => CreateSwapchainError::OomError(OomError::OutOfDeviceMemory),
-            ash::vk::Result::ErrorDeviceLost => CreateSwapchainError::DeviceLost(DeviceLost),
-            ash::vk::Result::ErrorSurfaceLostKhr => CreateSwapchainError::SurfaceLost,
-            ash::vk::Result::ErrorNativeWindowInUseKhr => CreateSwapchainError::WindowInUse,
-            _ => panic!("Unexpected result value"),
-        }
-    }
 }
 
 pub struct Swapchain {
@@ -54,7 +24,7 @@ impl Swapchain {
     }
 
     /// Create new swapchain
-    pub fn create(device: &Device, surface: &Surface, config: SwapchainConfig, old_swapchain: Option<Self>) -> Result<Self, CreateSwapchainError> {
+    pub fn create(device: &Device, surface: &Surface, old_swapchain: Option<Self>, config: SwapchainConfig) -> Result<Self, SurfaceError> {
         let mut swapchain = ash::vk::SwapchainKHR::null();
         let result = unsafe {
             device.swapchain.as_ref().unwrap().create_swapchain_khr(
@@ -88,7 +58,7 @@ impl Swapchain {
             ash::vk::Result::Success => Ok(Swapchain {
                 raw: swapchain,
             }),
-            error => Err(CreateSwapchainError::from_vk_result(error)),
+            error => Err(SurfaceError::from_vk_result(error)),
         }
     }
 }

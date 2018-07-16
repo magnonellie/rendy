@@ -4,7 +4,7 @@ use ash;
 use relevant::Relevant;
 use smallvec::SmallVec;
 
-use {DeviceLost, OomError, DeviceLostOrOomError};
+use errors::{DeviceLost, OomError, DeviceError};
 use command::{QueueId, buffer::*, capability::*, fence::*};
 use object::VulkanObjects;
 use device::DeviceTracker;
@@ -39,7 +39,7 @@ where
 {
     /// Submit commands for execution.
     /// This function accepts command buffer submissions with reference to `DeviceTracker` as tracker.
-    pub unsafe fn submit_scoped<'a, I, W, B, S>(&mut self, submissions: I, fence: Option<UnarmedFence>) -> Result<Option<ArmedFence<C>>, DeviceLostOrOomError>
+    pub unsafe fn submit_scoped<'a, I, W, B, S>(&mut self, submissions: I, fence: Option<UnarmedFence>) -> Result<Option<ArmedFence<C>>, DeviceError>
     where
         I: IntoIterator<Item = Submission<W, B, S>>,
         W: IntoIterator<Item = (ash::vk::Semaphore, ash::vk::PipelineStageFlags)>,
@@ -51,7 +51,7 @@ where
 
     /// Submit commands for execution.
     /// This function accepts command buffer submissions without tracker. Tracker is still bound to the command buffer.
-    pub unsafe fn submit<I, W, B, S>(&mut self, submissions: I, fence: Option<UnarmedFence>) -> Result<Option<ArmedFence<C>>, DeviceLostOrOomError>
+    pub unsafe fn submit<I, W, B, S>(&mut self, submissions: I, fence: Option<UnarmedFence>) -> Result<Option<ArmedFence<C>>, DeviceError>
     where
         I: IntoIterator<Item = Submission<W, B, S>>,
         W: IntoIterator<Item = (ash::vk::Semaphore, ash::vk::PipelineStageFlags)>,
@@ -61,7 +61,7 @@ where
         self.submit_impl(submissions, fence, |()| ())
     }
 
-    pub(crate) unsafe fn submit_impl<I, W, B, S, T, F>(&mut self, submissions: I, fence: Option<UnarmedFence>, mut accept: F) -> Result<Option<ArmedFence<C>>, DeviceLostOrOomError>
+    pub(crate) unsafe fn submit_impl<I, W, B, S, T, F>(&mut self, submissions: I, fence: Option<UnarmedFence>, mut accept: F) -> Result<Option<ArmedFence<C>>, DeviceError>
     where
         I: IntoIterator<Item = Submission<W, B, S>>,
         W: IntoIterator<Item = (ash::vk::Semaphore, ash::vk::PipelineStageFlags)>,
@@ -131,10 +131,7 @@ where
                 }
                 Ok(armed_fence)
             },
-            ash::vk::Result::ErrorOutOfHostMemory => Err(DeviceLostOrOomError::OomError(OomError::OutOfHostMemory)),
-            ash::vk::Result::ErrorOutOfDeviceMemory => Err(DeviceLostOrOomError::OomError(OomError::OutOfDeviceMemory)),
-            ash::vk::Result::ErrorDeviceLost => Err(DeviceLostOrOomError::DeviceLost(DeviceLost)),
-            _ => unreachable!(),
+            error => Err(DeviceError::from_vk_result(error)),
         }
     }
 

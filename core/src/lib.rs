@@ -32,6 +32,7 @@ extern crate objc;
 mod escape;
 
 pub mod buffer;
+pub mod errors;
 pub mod command;
 pub mod device;
 pub mod format;
@@ -40,57 +41,3 @@ pub mod memory;
 pub mod object;
 pub mod surface;
 pub mod swapchain;
-
-#[derive(Clone, Copy, Debug, Fail)]
-#[fail(display = "Device lost")]
-pub struct DeviceLost;
-
-impl DeviceLost {
-    fn from_vk_result(result: ash::vk::Result) -> Self {
-        match result {
-            ash::vk::Result::ErrorDeviceLost => DeviceLost,
-            _ => panic!("Unexpected result value"),
-        }
-    }
-}
-
-/// Out of memory error.
-#[derive(Clone, Copy, Debug, Fail)]
-pub enum OomError {
-    /// Host memory exhausted.
-    #[fail(display = "Out of host memory")]
-    OutOfHostMemory,
-
-    /// Device memory exhausted.
-    #[fail(display = "Out of device memory")]
-    OutOfDeviceMemory,
-}
-
-impl OomError {
-    fn from_vk_result(result: ash::vk::Result) -> Self {
-        match result {
-            ash::vk::Result::ErrorOutOfHostMemory => OomError::OutOfHostMemory,
-            ash::vk::Result::ErrorOutOfDeviceMemory => OomError::OutOfDeviceMemory,
-            _ => panic!("Unexpected result value"),
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Fail)]
-pub enum DeviceLostOrOomError {
-    #[fail(display = "{}", _0)]
-    OomError(OomError),
-    #[fail(display = "{}", _0)]
-    DeviceLost(DeviceLost)
-}
-
-impl DeviceLostOrOomError {
-    fn from_vk_result(result: ash::vk::Result) -> Self {
-        match result {
-            ash::vk::Result::ErrorOutOfHostMemory => DeviceLostOrOomError::OomError(OomError::OutOfHostMemory),
-            ash::vk::Result::ErrorOutOfDeviceMemory => DeviceLostOrOomError::OomError(OomError::OutOfDeviceMemory),
-            ash::vk::Result::ErrorDeviceLost => DeviceLostOrOomError::DeviceLost(DeviceLost),
-            _ => panic!("Unexpected result value"),
-        }
-    }
-}

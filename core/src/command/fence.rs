@@ -4,7 +4,7 @@ use ash;
 use relevant::Relevant;
 use smallvec::SmallVec;
 
-use {DeviceLostOrOomError, DeviceLost, OomError};
+use errors::{DeviceError, DeviceLost, OomError};
 use command::{Capability, QueueId};
 
 /// Fence that wasn't submitted to the queue
@@ -41,7 +41,7 @@ pub enum WaitFor {
 /// Returns collection of `ReadyFence` if all fences are signalled.
 /// Returns collection of `ArmedFence` if not all fences are signalled in before timeout.
 /// Returns error if failed otherwise.
-pub(crate) unsafe fn wait_for_all_fences<C, I>(fp: ash::vk::DeviceFnV1_0, device: ash::vk::Device, fences: I, timeout: u64) -> Result<Result<impl Iterator<Item = ReadyFence<C>>, impl Iterator<Item = ArmedFence<C>>>, DeviceLostOrOomError>
+pub(crate) unsafe fn wait_for_all_fences<C, I>(fp: ash::vk::DeviceFnV1_0, device: ash::vk::Device, fences: I, timeout: u64) -> Result<Result<impl Iterator<Item = ReadyFence<C>>, impl Iterator<Item = ArmedFence<C>>>, DeviceError>
 where
     I: IntoIterator<Item = ArmedFence<C>>,
 {
@@ -59,10 +59,7 @@ where
             })))
         },
         ash::vk::Result::Timeout => Ok(Err(fences.into_iter())),
-        ash::vk::Result::ErrorOutOfHostMemory => Err(DeviceLostOrOomError::OomError(OomError::OutOfHostMemory)),
-        ash::vk::Result::ErrorOutOfDeviceMemory => Err(DeviceLostOrOomError::OomError(OomError::OutOfDeviceMemory)),
-        ash::vk::Result::ErrorDeviceLost => Err(DeviceLostOrOomError::DeviceLost(DeviceLost)),
-        _ => unreachable!(),
+        error => Err(DeviceError::from_vk_result(error)),
     }
 }
 

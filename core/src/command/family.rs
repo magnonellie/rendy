@@ -3,7 +3,7 @@ use std::{fmt::Debug, iter::FromIterator, marker::PhantomData, ptr::null, sync::
 use ash::{self, version::{DeviceV1_0, V1_0}};
 use relevant::Relevant;
 
-use OomError;
+use errors::OomError;
 use command::{FamilyId, QueueId, capability::Capability, pool::{self, Usage, Pool}, queue::Queue};
 
 /// Collection of all queues from one family

@@ -4,9 +4,9 @@ use ash::{self, version::{DeviceV1_0, EntryV1_0, InstanceV1_0}};
 use relevant::Relevant;
 use winit::Window;
 
-use {OomError, DeviceLost};
 use buffer;
 use command;
+use errors::*;
 use escape::Terminal;
 use format;
 use image;
@@ -69,106 +69,6 @@ pub struct CreateQueueFamily {
     pub count: u32,
 }
 
-/// Possible errors returned by `Instance` and `PhysicalDevice`.
-#[derive(Clone, Debug, Fail)]
-pub enum InstanceError {
-    #[fail(display = "Failed to load vulkan library {}", _0)]
-    LibraryLoadError(String),
-
-    #[fail(display = "Failed to load functions {:?}", _0)]
-    LoadError(Vec<&'static str>),
-
-    #[fail(display = "OomError")]
-    OomError(OomError),
-
-    #[fail(display = "Initialization failed")]
-    InitializationFailed,
-
-    #[fail(display = "Layer not present")]
-    LayerNotPresent,
-
-    #[fail(display = "Extension not present")]
-    ExtensionNotPresent,
-
-    #[fail(display = "Incompatible driver")]
-    IncompatibleDriver,
-}
-
-impl InstanceError {
-    fn from_loading_error(error: ash::LoadingError) -> Self {
-        match error {
-            ash::LoadingError::LibraryLoadError(name) => InstanceError::LibraryLoadError(name),
-            ash::LoadingError::EntryLoadError(names) => InstanceError::LoadError(names),
-            ash::LoadingError::StaticLoadError(names) => InstanceError::LoadError(names),
-        }
-    }
-
-    fn from_instance_error(error: ash::InstanceError) -> Self {
-        match error {
-            ash::InstanceError::LoadError(names) => InstanceError::LoadError(names),
-            ash::InstanceError::VkError(result) => InstanceError::from_vk_result(result),
-        }
-    }
-
-    fn from_vk_result(result: ash::vk::Result) -> Self {
-        match result {
-            ash::vk::Result::ErrorOutOfHostMemory => InstanceError::OomError(OomError::OutOfHostMemory),
-            ash::vk::Result::ErrorOutOfDeviceMemory => InstanceError::OomError(OomError::OutOfDeviceMemory),
-            ash::vk::Result::ErrorInitializationFailed => InstanceError::InitializationFailed,
-            ash::vk::Result::ErrorLayerNotPresent => InstanceError::LayerNotPresent,
-            ash::vk::Result::ErrorExtensionNotPresent => InstanceError::ExtensionNotPresent,
-            ash::vk::Result::ErrorIncompatibleDriver => InstanceError::IncompatibleDriver,
-            _ => panic!("Unexpected error value"),
-        }
-    }
-}
-
-/// Possible errors returned by `Device`.
-#[derive(Clone, Debug, Fail)]
-pub enum DeviceError {
-    #[fail(display = "Failed to load device functions {:?}", _0)]
-    LoadError(Vec<&'static str>),
-
-    #[fail(display = "{}", _0)]
-    OomError(OomError),
-
-    #[fail(display = "{}", _0)]
-    DeviceLost(DeviceLost),
-
-    #[fail(display = "Initialization failed")]
-    InitializationFailed,
-
-    #[fail(display = "Extension not present")]
-    ExtensionNotPresent,
-
-    #[fail(display = "Feature not present")]
-    FeatureNotPresent,
-
-    #[fail(display = "Too many objects")]
-    TooManyObjects,
-}
-
-impl DeviceError {
-    fn from_device_error(error: ash::DeviceError) -> Self {
-        match error {
-            ash::DeviceError::LoadError(names) => DeviceError::LoadError(names),
-            ash::DeviceError::VkError(result) => DeviceError::from_vk_result(result),
-        }
-    }
-
-    fn from_vk_result(result: ash::vk::Result) -> Self {
-        match result {
-            ash::vk::Result::ErrorOutOfHostMemory => DeviceError::OomError(OomError::OutOfHostMemory),
-            ash::vk::Result::ErrorOutOfDeviceMemory => DeviceError::OomError(OomError::OutOfDeviceMemory),
-            ash::vk::Result::ErrorDeviceLost => DeviceError::DeviceLost(DeviceLost),
-            ash::vk::Result::ErrorInitializationFailed => DeviceError::InitializationFailed,
-            ash::vk::Result::ErrorExtensionNotPresent => DeviceError::ExtensionNotPresent,
-            ash::vk::Result::ErrorFeatureNotPresent => DeviceError::FeatureNotPresent,
-            ash::vk::Result::ErrorTooManyObjects => DeviceError::TooManyObjects,
-            _ => panic!("Unexpected result value"),
-        }
-    }
-}
 
 pub(crate) struct InnerInstance {
     pub(crate) raw: ash::Instance<ash::version::V1_0>,
@@ -237,6 +137,8 @@ impl Instance {
                         .find(|&name| &**name == surface_extension).is_some()
                 })
             ;
+
+            trace!("Surface enabled: {}", surface_enabled);
 
             let enabled_layers: Vec<*const ash::vk::c_char> = layers.iter().map(|s| s.as_ptr()).collect();
             let enabled_extensions: Vec<*const ash::vk::c_char> = extensions.iter().map(|s| s.as_ptr()).collect();
@@ -379,6 +281,7 @@ impl Device {
         let extensions = extensions.into_iter().map(|extension| CString::new(extension).unwrap()).collect::<Vec<_>>();
 
         let swapchain_enabled = extensions.iter().find(|&name| &**name == ash::extensions::Swapchain::name()).is_some();
+        trace!("Swapchain enabled: {}", swapchain_enabled);
 
         debug!("Enabling extensions: {:#?}", &extensions);
 
