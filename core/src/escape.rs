@@ -70,7 +70,6 @@ where
 pub struct Terminal {
     sender: ManuallyDrop<Sender<VulkanObject>>,
     receiver: Receiver<VulkanObject>,
-    relevant: Relevant,
 }
 
 impl Default for Terminal {
@@ -86,7 +85,6 @@ impl Terminal {
         Terminal {
             sender: ManuallyDrop::new(sender),
             receiver,
-            relevant: Relevant,
         }
     }
 
@@ -105,11 +103,15 @@ impl Terminal {
     pub fn drain<'a>(&'a mut self) -> impl Iterator<Item = VulkanObject> + 'a {
         repeat(()).scan(&self.receiver, |receiver, ()| receiver.try_recv())
     }
+}
 
-    /// Destroys terminal
-    /// Get iterator over values from dropped `Escape` instances that was created by this `Terminal`.
-    pub fn destroy(self) -> impl Iterator<Item = VulkanObject> {
-        self.relevant.dispose();
-        repeat(()).scan(self.receiver, |receiver, ()| receiver.recv()).fuse()
+impl Drop for Terminal {
+    fn drop(&mut self) {
+        unsafe {
+            drop(read(&mut self.sender));
+            trace!("Sender dropped");
+            assert!(self.receiver.try_recv().is_none());
+            trace!("Receiver checked");
+        }
     }
 }

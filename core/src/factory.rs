@@ -11,6 +11,7 @@ use memory;
 use object::VulkanObjects;
 use tracker::GlobalTracker;
 
+
 /// Vulkan entry functions.
 type Entry = ash::Entry<ash::version::V1_0>;
 
@@ -20,12 +21,55 @@ type Instance = ash::Instance<ash::version::V1_0>;
 /// Vulkan entry functions.
 type Device = ash::Device<ash::version::V1_0>;
 
+
+
+#[derive(Clone, Debug)]
 pub struct Config {
-    app_name: String,
-    app_version: u32,
-    layer_names: Vec<String>,
-    extension_names: Vec<String>,
+    pub app_name: String,
+    pub app_version: u32,
+    pub layers: Vec<String>,
+    pub extensions: Vec<String>,
 }
+
+#[derive(Clone, Copy, Debug)]
+pub struct Layer<'a> {
+    pub name: &'a str,
+    pub spec_version: u32,
+    pub implementation_version: u32,
+    pub description: &'a str,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Extension<'a> {
+    pub name: &'a str,
+    pub spec_version: u32,
+}
+
+#[derive(Clone, Debug)]
+pub struct PhysicalDevice<'a> {
+    pub api_version: u32,
+    pub driver_version: u32,
+    pub vendor_id: u32,
+    pub device_id: u32,
+    pub device_type: ash::vk::PhysicalDeviceType,
+    pub device_name: &'a str,
+    pub pipeline_cache_uuid: [u8; 16],
+    pub limits: ash::vk::PhysicalDeviceLimits,
+    pub sparse_properties: ash::vk::PhysicalDeviceSparseProperties,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct QueueFamilyProperties {
+    pub capability: command::Capability,
+    pub queue_count: u32,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct CreateQueueFamily {
+    pub family: u32,
+    pub count: u32,
+}
+
 
 /// Loads Vulkan and builds factory step by step.
 pub struct FactoryBuilder;
@@ -36,9 +80,11 @@ impl FactoryBuilder {
     }
 
     /// Load Vulkan implementation.
-    pub fn load<'a, F>(self) -> Result<FactoryLoaded, ash::LoadingError> {
+    pub fn load(self) -> Result<FactoryLoaded, ash::LoadingError> {
+        let entry = Entry::new()?;
+        info!("Vulkan entry loaded");
         Ok(FactoryLoaded {
-            entry: Entry::new()?,
+            entry,
         })
     }
 }
@@ -51,21 +97,36 @@ impl FactoryLoaded {
     /// Create vulkan instance.
     pub fn instantiate<F>(self, configure: F) -> Result<FactoryInstantiated, ash::InstanceError>
     where
-        F: FnOnce(&[ash::vk::LayerProperties], &[ash::vk::ExtensionProperties]) -> Config,
+        F: FnOnce(&[Layer], &[Extension]) -> Config,
     {
         let layer_properties = self.entry.enumerate_instance_layer_properties().map_err(ash::InstanceError::VkError)?;
         let extension_properties = self.entry.enumerate_instance_extension_properties().map_err(ash::InstanceError::VkError)?;
 
-        let config = configure(&layer_properties, &extension_properties);
-        let mut app_name = CString::new(config.app_name).unwrap();
-        let engine_name = CString::new("rendy").unwrap();
-        let layer_names: Vec<CString> = config.layer_names.into_iter().map(|s| CString::new(s).unwrap()).collect();
-        let extension_names: Vec<CString> = config.extension_names.into_iter().map(|s| CString::new(s).unwrap()).collect();
-
-        let pp_enabled_layer_names: Vec<*const ash::vk::c_char> = layer_names.iter().map(|s| s.as_ptr()).collect();
-        let pp_enabled_layer_names: Vec<*const ash::vk::c_char> = layer_names.iter().map(|s| s.as_ptr()).collect();
-
+        debug!("Properties and extensions fetched");
         let instance = unsafe {
+            let layers = layer_properties.iter().map(|layer| Layer {
+                name: CStr::from_ptr(&layer.layer_name[0]).to_str().unwrap(),
+                spec_version: layer.spec_version,
+                implementation_version: layer.implementation_version,
+                description: CStr::from_ptr(&layer.description[0]).to_str().unwrap(),
+            }).collect::<Vec<_>>();
+
+            let extensions = extension_properties.iter().map(|extension| Extension {
+                name: CStr::from_ptr(&extension.extension_name[0]).to_str().unwrap(),
+                spec_version: extension.spec_version,
+            }).collect::<Vec<_>>();
+
+            let config = configure(&layers, &extensions);
+
+            debug!("Config acquired");
+            let app_name = CString::new(config.app_name).unwrap();
+            let engine_name = CString::new("rendy").unwrap();
+            let layers: Vec<CString> = config.layers.into_iter().map(|s| CString::new(s).unwrap()).collect();
+            let extensions: Vec<CString> = config.extensions.into_iter().map(|s| CString::new(s).unwrap()).collect();
+
+            let enabled_layers: Vec<*const ash::vk::c_char> = layers.iter().map(|s| s.as_ptr()).collect();
+            let enabled_extensions: Vec<*const ash::vk::c_char> = extensions.iter().map(|s| s.as_ptr()).collect();
+
             self.entry.create_instance(
                 &ash::vk::InstanceCreateInfo {
                     s_type: ash::vk::StructureType::InstanceCreateInfo,
@@ -80,15 +141,16 @@ impl FactoryLoaded {
                         engine_version: 1,
                         api_version: vk_make_version!(1, 0, 0),
                     },
-                    enabled_layer_count: pp_enabled_layer_names.len() as u32,
-                    pp_enabled_layer_names: pp_enabled_layer_names.as_ptr(),
-                    enabled_extension_count: pp_enabled_layer_names.len() as u32,
-                    pp_enabled_extension_names: pp_enabled_layer_names.as_ptr(),
+                    enabled_layer_count: enabled_layers.len() as u32,
+                    pp_enabled_layer_names: enabled_layers.as_ptr(),
+                    enabled_extension_count: enabled_extensions.len() as u32,
+                    pp_enabled_extension_names: enabled_extensions.as_ptr(),
                 },
                 None
             )?
         };
 
+        info!("Vulkan instance created");
         Ok(FactoryInstantiated {
             instance,
         })
@@ -99,63 +161,91 @@ pub struct FactoryInstantiated {
     instance: Instance,
 }
 
-pub struct CreateQueueFamilyInfo {
-    family: u32,
-    count: u32,
-}
-
 impl FactoryInstantiated {
     /// Create device.
-    pub fn with_device<P, Q, E, F>(self, physical: P, families: Q, mut extensions: E, features: F) -> Result<Factory, ash::DeviceError>
+    pub fn with_device<P, Q, E, F>(self, pick_physical: P, pick_families: Q, mut pick_extensions: E, pick_features: F) -> Result<Factory, ash::DeviceError>
     where
-        P: FnOnce(&[ash::vk::PhysicalDeviceProperties]) -> usize,
+        P: FnOnce(&[PhysicalDevice]) -> usize,
+        Q: FnOnce(&[QueueFamilyProperties]) -> Vec<CreateQueueFamily>,
         E: FnMut(&str) -> bool,
-        Q: FnOnce(&[ash::vk::QueueFamilyProperties]) -> Vec<CreateQueueFamilyInfo>,
         F: FnOnce(ash::vk::PhysicalDeviceFeatures) -> ash::vk::PhysicalDeviceFeatures,
     {
         let mut physicals = self.instance.enumerate_physical_devices().map_err(ash::DeviceError::VkError)?;
         let properties = physicals.iter().map(|&physical| self.instance.get_physical_device_properties(physical)).collect::<Vec<_>>();
-        let physical = physicals.swap_remove(physical(&properties));
+        let queue_properties;
+        let memory_properties;
+        let families;
 
-        let extension_properties = self.instance.enumerate_device_extension_properties(physical).map_err(ash::DeviceError::VkError)?;
-        let device_features = self.instance.get_physical_device_features(physical);
-        let queue_properties = self.instance.get_physical_device_queue_family_properties(physical);
-        let memory_properties = self.instance.get_physical_device_memory_properties(physical);
+        let (device, physical) = unsafe {
+            let properties = properties.iter().map(|physical| PhysicalDevice {            
+                api_version: physical.api_version,
+                driver_version: physical.driver_version,
+                vendor_id: physical.vendor_id,
+                device_id: physical.device_id,
+                device_type: physical.device_type,
+                device_name: CStr::from_ptr(&physical.device_name[0]).to_str().unwrap(),
+                pipeline_cache_uuid: physical.pipeline_cache_uuid,
+                limits: physical.limits.clone(),
+                sparse_properties: physical.sparse_properties.clone(),
+            }).collect::<Vec<_>>();
 
-        let enabled_extension = extension_properties.iter().filter_map(|extension| {
-            if extension.spec_version <= vk_make_version!(1, 0, 0) {
-                let name = unsafe {
-                    CStr::from_ptr(&extension.extension_name[0]).to_str().unwrap()
-                };
-                if extensions(name) {
-                    Some(name.as_ptr())
+            debug!("Physical devices fetched");
+            trace!("Physical device properties: {:?}", properties);
+            let picked = pick_physical(&properties);
+            let physical = physicals.swap_remove(picked);
+            info!("Physical device '{}' picked", picked);
+            
+            queue_properties = self.instance.get_physical_device_queue_family_properties(physical)
+                .into_iter()
+                .map(|properties| QueueFamilyProperties {
+                    capability: properties.queue_flags.into(),
+                    queue_count: properties.queue_count,
+                })
+                .collect::<Vec<_>>();
+            trace!("Queues: {:?}", queue_properties);
+
+            families = pick_families(&queue_properties);
+
+            let priorities = vec![1f32; families.iter().max_by_key(|cqi| cqi.count).map_or(0, |cqi| cqi.count) as usize];
+
+            let queue_create_infos = families.iter().map(|cqi| {
+                ash::vk::DeviceQueueCreateInfo {
+                    s_type: ash::vk::StructureType::DeviceQueueCreateInfo,
+                    p_next: null(),
+                    flags: ash::vk::DeviceQueueCreateFlags::empty(),
+                    queue_family_index: cqi.family,
+                    queue_count: cqi.count,
+                    p_queue_priorities: priorities.as_ptr(),
+                }
+            }).collect::<Vec<_>>();
+
+            let extension_properties = self.instance.enumerate_device_extension_properties(physical).map_err(ash::DeviceError::VkError)?;
+            trace!("Extensions: {:?}", extension_properties);
+
+            let enabled_extensions = extension_properties.iter().filter_map(|extension| {
+                if extension.spec_version <= vk_make_version!(1, 0, 0) {
+                    let name = unsafe {
+                        CStr::from_ptr(&extension.extension_name[0]).to_str().unwrap()
+                    };
+                    if pick_extensions(name) {
+                        Some(name.as_ptr())
+                    } else {
+                        None
+                    }
                 } else {
                     None
                 }
-            } else {
-                None
-            }
-        }).collect::<Vec<*const _>>();
+            }).collect::<Vec<*const _>>();
 
-        let families = families(&queue_properties);
+            let device_features = self.instance.get_physical_device_features(physical);
+            trace!("Features: {:?}", device_features);
 
-        let priorities = vec![1f32; families.iter().max_by_key(|cqi| cqi.count).map_or(0, |cqi| cqi.count) as usize];
+            let device_features = pick_features(device_features);
 
-        let queue_create_infos = families.iter().map(|cqi| {
-            ash::vk::DeviceQueueCreateInfo {
-                s_type: ash::vk::StructureType::DeviceQueueCreateInfo,
-                p_next: null(),
-                flags: ash::vk::DeviceQueueCreateFlags::empty(),
-                queue_family_index: cqi.family,
-                queue_count: cqi.count,
-                p_queue_priorities: priorities.as_ptr(),
-            }
-        }).collect::<Vec<_>>();
+            memory_properties = self.instance.get_physical_device_memory_properties(physical);
+            trace!("Memory: {:?}", memory_properties);
 
-        let device_features = features(device_features);
-
-        let device = unsafe {
-            self.instance.create_device(
+            let device = self.instance.create_device(
                 physical,
                 &ash::vk::DeviceCreateInfo {
                     s_type: ash::vk::StructureType::DeviceCreateInfo,
@@ -165,12 +255,13 @@ impl FactoryInstantiated {
                     p_queue_create_infos: queue_create_infos.as_ptr(),
                     enabled_layer_count: 0,
                     pp_enabled_layer_names: null(),
-                    enabled_extension_count: enabled_extension.len() as u32,
-                    pp_enabled_extension_names: enabled_extension.as_ptr() as _,
+                    enabled_extension_count: enabled_extensions.len() as u32,
+                    pp_enabled_extension_names: enabled_extensions.as_ptr() as _,
                     p_enabled_features: &device_features,
                 },
                 None,
-            )?
+            )?;
+            (device, physical)
         };
 
         let device = (Arc::new(device.fp_v1_0().clone()), device.handle());
@@ -181,7 +272,7 @@ impl FactoryInstantiated {
             families: families.iter().map(|cqi| {
                 let id = command::FamilyId {
                     index: cqi.family,
-                    capability: queue_properties[cqi.family as usize].queue_flags.into(),
+                    capability: queue_properties[cqi.family as usize].capability,
                 };
                 unsafe { // Uses same values that was used in `Instance::create_device` method.
                     command::Family::from_device(device.0.clone(), device.1, id, cqi.count)
@@ -253,6 +344,23 @@ impl Factory {
         let objects = Arc::new(self.terminal.drain().collect::<VulkanObjects>());
         for queue in self.families.iter_mut().flat_map(command::Family::queues) {
             queue.push_track(objects.clone());
+        }
+    }
+}
+
+impl Drop for Factory {
+    fn drop(&mut self) {
+        self.families.clear();
+        trace!("Queues stopped");
+        unsafe {
+            for object in self.terminal.drain() {
+                object.destroy(&self.device.0, self.device.1);
+            }
+            trace!("Objects destroyed");
+            self.device.0.destroy_device(self.device.1, null());
+            trace!("Device destroyed");
+            self.instance.destroy_instance(None);
+            trace!("Instance destroyed");
         }
     }
 }

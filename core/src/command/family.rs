@@ -14,7 +14,6 @@ pub struct Family<C = Capability> {
     device: ash::vk::Device,
     id: FamilyId<C>,
     queues: Vec<Queue<C>>,
-    relevant: Relevant,
 }
 
 impl<C> Family<C>
@@ -35,7 +34,6 @@ where
                 fp.get_device_queue(device, id.index, queue_index, &mut queue);
                 Queue::from_raw(fp.clone(), queue, QueueId { family: id, index: queue_index }).into()
             }).collect(),
-            relevant: Relevant,
             fp,
             device,
         }
@@ -77,7 +75,6 @@ where
         Family {
             id,
             queues,
-            relevant: Relevant,
             fp,
             device,
         }

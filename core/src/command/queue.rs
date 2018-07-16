@@ -25,6 +25,14 @@ pub struct Queue<C = Capability> {
     pending: LinkedList<Bucket>,
 }
 
+impl<C> Drop for Queue<C> {
+    fn drop(&mut self) {
+        unsafe {
+            self.fp.queue_wait_idle(self.raw);
+        }
+    }
+}
+
 impl<C> Queue<C>
 where
     C: Copy + Debug,

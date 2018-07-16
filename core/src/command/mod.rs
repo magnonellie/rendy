@@ -7,8 +7,6 @@
 //! Each family can have different capabilities which can be encoded into types of the queues.
 //! 
 
-
-
 pub mod buffer;
 pub mod capability;
 pub mod family;

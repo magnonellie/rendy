@@ -11,6 +11,7 @@ keywords = ["graphics", "Vulkan", "ash", "render", "unsafe"]
 [dependencies]
 ash = "0.24"
 failure = "0.1"
+log = "0.4"
 relevant = "0.1"
 crossbeam-channel = "0.2"
 smallvec = "0.6"

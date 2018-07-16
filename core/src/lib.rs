@@ -17,6 +17,8 @@ extern crate ash;
 extern crate crossbeam_channel;
 #[macro_use]
 extern crate failure;
+#[macro_use]
+extern crate log;
 extern crate relevant;
 extern crate smallvec;
 

@@ -10,4 +10,7 @@ keywords = ["graphics", "Vulkan", "ash", "render"]
 
 [dependencies]
 rendy-core = { version = "0.0.1", path = "../core" }
+log = "0.4"
 
+[dev-dependencies]
+env_logger = "0.5"
